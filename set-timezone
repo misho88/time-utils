@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from pathlib import Path
+from subprocess import run, PIPE
+from sys import exit, stderr
+
+EPILOG='''\
+"posix" timezones are based on Coordinated Univeral Time (UTC)
+"right" timezones are based on International Atomic Time (TAI)
+default timezones are based on "posix", probably maybe
+'''
+
+parser = ArgumentParser(epilog=EPILOG, formatter_class=RawDescriptionHelpFormatter)
+parser.add_argument('--posix', '-p', action='store_true', help='search posix timezones only')
+parser.add_argument('--right', '-r', action='store_true', help='search right timezones only (corrected for leap seconds)')
+parser.add_argument('--include-posix', '-P', action='store_true', help='include posix timezones in search')
+parser.add_argument('--include-right', '-R', action='store_true', help='include right timezones in search')
+args = parser.parse_args()
+
+names = 'posix', 'right', 'include_posix', 'include_right'
+
+for i, n0 in enumerate(names[:2]):
+    if getattr(args, n0):
+        for n1 in names[i+1:]:
+            if getattr(args, n1):
+                n0str = n0.replace('_', '-')
+                n1str = n1.replace('_', '-')
+                print(f'set-timezone: cannot specify both --{n0str} and --{n1str}')
+                exit(1)
+
+if args.posix:
+    for name in 'right', 'include_posix', 'include_right':
+        if getattr(args, name):
+            print(f'set-timezone: cannot specify both --posix and --{name.replace("-", "_")}')
+            exit(1)
+if args.right:
+    for name in 'include_posix', 'include_right':
+        if getattr(args, name):
+            print(f'set-timezone: cannot specify both --right and --{name.replace("-", "_")}')
+            exit(1)
+
+localtime = Path('/etc/localtime')
+zoneinfo = Path('/usr/share/zoneinfo')
+
+if args.posix:
+    zoneinfo /= 'posix'
+elif args.right:
+    zoneinfo /= 'right'
+
+paths = (
+    str(path.relative_to(zoneinfo))
+    for path in zoneinfo.glob('**/*')
+    if path.is_file()
+    if path.suffix != '.tab'
+    if path.name not in ('posixrules', 'tzdata.zi)')
+    if args.include_posix or zoneinfo / 'posix' not in path.parents
+    if args.include_right or zoneinfo / 'right' not in path.parents
+)
+
+rv = run(
+    [
+        'fzf',
+        '--preview', f'zdump {zoneinfo}/' '{}',
+        '--preview-window', 'down,1',
+    ],
+    input='\n'.join(paths).encode(),
+    stdout=PIPE,
+)
+if rv.returncode:
+    exit(rv.returncode)
+timezone = rv.stdout.decode().removesuffix('\n')
+try:
+    localtime.unlink(missing_ok=True)
+    localtime.symlink_to(zoneinfo / timezone)
+except PermissionError as e:
+    print(e, file=stderr)
+    exit(1)
+else:
+    print(f'{localtime} -> {localtime.resolve()}')

@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+from datetime import datetime
+from pytz import timezone, all_timezones
+from argparse import ArgumentParser
+from fnmatch import fnmatch
+from sys import exit, stderr
+
+parser = ArgumentParser()
+parser.add_argument(
+    'timezones', nargs='*', default=['local', 'UTC'],
+    help="list of timezones; case insensitive, can be glob-style "
+         "(e.g., 'eu*./z*'); default: local UTC"
+)
+parser.add_argument(
+    '--format', '-f', default='%T %z (%Z)',
+    help="time format; see datetime.strftime or GNU date's man page; "
+         "default: '%%T %%z (%%Z)'"
+)
+parser.add_argument(
+    '--list-available', '-l', action='store_true',
+    help="list all available timezones and exit"
+)
+args = parser.parse_args()
+
+if args.list_available:
+    print('\n'.join(all_timezones))
+    exit(0)
+
+now = datetime.now(tz=timezone('UTC'))
+
+timezones = set(p.lower() for p in args.timezones)
+results = []
+
+if 'local' in timezones:
+    results.append(('Local', datetime.now().astimezone()))
+    timezones.remove('local')
+
+for pattern in timezones:
+    n_found = 0
+    for name in all_timezones:
+        n = name.lower()
+        found = fnmatch(n, pattern) or any(fnmatch(s, pattern) for s in n.split('/'))
+        if found:
+            n_found += 1
+            tz = timezone(name)
+            results.append((name, now.astimezone(tz)))
+    if n_found == 0:
+        print(f'{repr(pattern)} not found', file=stderr)
+
+if results:
+    duplicates = [
+        n
+        for n, _ in results
+        if n.startswith('Etc/') and n[4:] in (nn for nn, _ in results)
+    ]
+
+    sep = ': '
+    max_len = len(sep) + max(len(n) for n, _ in results)
+
+    def fmt(name):
+        heading = f'{name}{sep}'
+        return f'{heading:{max_len}}'
+
+    print('\n'.join(
+        f'{fmt(n)}{t.strftime(args.format)}'
+        for n, t in results
+        if n not in duplicates
+    ))

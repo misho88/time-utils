@@ -29,14 +29,14 @@ if args.list_available:
 
 now = datetime.now(tz=timezone('UTC'))
 
-timezones = set(p.lower() for p in args.timezones)
+timezones = [ p.lower() for p in args.timezones ]
 results = []
 
-if 'local' in timezones:
-    results.append(('Local', datetime.now().astimezone()))
-    timezones.remove('local')
-
 for pattern in timezones:
+    if pattern == 'local':
+        results.append(('Local', datetime.now().astimezone()))
+        continue
+
     n_found = 0
     for name in all_timezones:
         n = name.lower()
